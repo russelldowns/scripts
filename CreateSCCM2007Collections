@@ -1,0 +1,100 @@
+#                   lllllll   iiii  kkkkkkkk           kkkkkkkk           
+#                   l:::::l  i::::i k::::::k           k::::::k           
+#                   l:::::l   iiii  k::::::k           k::::::k           
+#                   l:::::l         k::::::k           k::::::k           
+#     ooooooooooo    l::::l iiiiiii  k:::::k    kkkkkkk k:::::k    kkkkkkk   aaaaaaaaaaaaa       
+#   oo:::::::::::oo  l::::l i:::::i  k:::::k   k:::::k  k:::::k   k:::::k    a::::::::::::a      
+#  o:::::::::::::::o l::::l  i::::i  k:::::k  k:::::k   k:::::k  k:::::k     aaaaaaaaa:::::a    
+#  o:::::ooooo:::::o l::::l  i::::i  k:::::k k:::::k    k:::::k k:::::k               a::::a     
+#  o::::o     o::::o l::::l  i::::i  k::::::k:::::k     k::::::k:::::k         aaaaaaa:::::a     
+#  o::::o     o::::o l::::l  i::::i  k:::::::::::k      k:::::::::::k        aa::::::::::::a     
+#  o::::o     o::::o l::::l  i::::i  k:::::::::::k      k:::::::::::k       a::::aaaa::::::a     
+#  o::::o     o::::o l::::l  i::::i  k::::::k:::::k     k::::::k:::::k     a::::a    a:::::a     
+#  o:::::ooooo:::::ol::::::li::::::ik::::::k k:::::k   k::::::k k:::::k    a::::a    a:::::a     
+#  o:::::::::::::::ol::::::li::::::ik::::::k  k:::::k  k::::::k  k:::::k   a:::::aaaa::::::a      
+#   oo:::::::::::oo l::::::li::::::ik::::::k   k:::::k k::::::k   k:::::k   a::::::::::aa:::a    
+#     ooooooooooo   lllllllliiiiiiiikkkkkkkk    kkkkkkkkkkkkkkk    kkkkkkk  aaaaaaaaaa  aaaa     
+#                  
+#         
+#                 
+# FileName: CreateConfigMgr2007CollectionsFromCSV.ps1
+#=============================================================================
+# REVISION HISTORY
+#=============================================================================
+# Version : 1.0
+# Date    : January 2014
+# Author  : Russell Downs
+# Notes   : 
+#=============================================================================
+
+<#
+.SYNOPSIS
+Creates ConfigMgr2007 Collections from a CSV.
+
+.DESCRIPTION
+
+
+.INPUTS
+None. You cannot pipe objects to this command.
+
+.OUTPUTS
+Note. This command does not return any data.
+
+.NOTES
+
+
+.EXAMPLE
+PS C:\> CreateConfigMgr2007CollectionsFromCSV.ps1
+
+.REQUIREMENTS
+
+Requires -Modules SCCM-Commands.psm1 (snowland.se SCCM PoSH)
+
+Creates collections from CSV imported below.
+
+.LINK
+http://www.olikka.com.au
+http://snowland.se/SCCM-POSH
+#>
+
+#=============================================================================
+# PARAMETERS
+#=============================================================================
+
+# Download the snowland.se ConfigMgr 2007 PoSH module and enter the path to it here:
+Import-Module "C:\Blah\SCCM-Commands.psm1" 
+
+# Enter the path to the Collection file here:
+$Collections = Import-CSV "C:\Blah\test.CSV"
+
+# Example Collection
+# Site,Region,Name,Comment,ParentCollection
+# BR-PLU,AME,MBAM - AME - BR-PLU,Collection for BR-PLU,GL100A18
+
+# Enter the SiteServer and SiteCode here:
+$SiteServer = 'AU-GLB-SCM01'
+$SiteCode = 'GL1'
+
+# Enter the Limiting Collection (or enter "SMS00001") here:
+$LimitingCollection = 'GL100A0B'
+
+#=============================================================================
+# SCRIPT BODY
+#=============================================================================
+
+# Create a connection to the SCCM Server
+$SCCMServer = Connect-SCCMServer -HostName $SiteServer -sitecode $SiteCode -Verbose
+
+foreach($Collection in $Collections)
+{
+#INSERT THE COLLECTION QUERY RULE HERE:
+$Query = @"
+select *  from  SMS_R_System inner join SMS_G_System_SYSTEM_ENCLOSURE on SMS_G_System_SYSTEM_ENCLOSURE.ResourceId = SMS_R_System.ResourceId inner join SMS_G_System_COMPUTER_SYSTEM on SMS_G_System_COMPUTER_SYSTEM.ResourceId = SMS_R_System.ResourceId where SMS_R_System.ADSiteName = '$($Collection.site)' and SMS_G_System_SYSTEM_ENCLOSURE.ChassisTypes in ("8","9","10","11","12","14","18","21") and SMS_G_System_COMPUTER_SYSTEM.Manufacturer not in ("VMware, Inc.","Microsoft Corporation","%VM%","%Hyper-V%", "%Virtual%") and SMS_R_System.Client = 1
+"@	
+    $NewColl = New-SCCMCollection -SCCMServer $SCCMServer -name $Collection.name -comment $Collection.comment -parentCollectionID $Collection.parentcollection -refreshDays 1 -Verbose
+    Add-SCCMCollectionRule -Server $SCCMServer -collectionID $NewColl.CollectionId -queryExpression $query -queryRuleName $Collection.site -limitToCollectionId  $LimitingCollection -Verbose
+}
+
+#=============================================================================
+# END OF SCRIPT: Create ConfigMgr 2007 Collections From CSV
+#=============================================================================
