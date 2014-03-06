@@ -1,0 +1,215 @@
+
+#                   lllllll   iiii  kkkkkkkk           kkkkkkkk           
+#                   l:::::l  i::::i k::::::k           k::::::k           
+#                   l:::::l   iiii  k::::::k           k::::::k           
+#                   l:::::l         k::::::k           k::::::k           
+#     ooooooooooo    l::::l iiiiiii  k:::::k    kkkkkkk k:::::k    kkkkkkk   aaaaaaaaaaaaa       
+#   oo:::::::::::oo  l::::l i:::::i  k:::::k   k:::::k  k:::::k   k:::::k    a::::::::::::a      
+#  o:::::::::::::::o l::::l  i::::i  k:::::k  k:::::k   k:::::k  k:::::k     aaaaaaaaa:::::a    
+#  o:::::ooooo:::::o l::::l  i::::i  k:::::k k:::::k    k:::::k k:::::k               a::::a     
+#  o::::o     o::::o l::::l  i::::i  k::::::k:::::k     k::::::k:::::k         aaaaaaa:::::a     
+#  o::::o     o::::o l::::l  i::::i  k:::::::::::k      k:::::::::::k        aa::::::::::::a     
+#  o::::o     o::::o l::::l  i::::i  k:::::::::::k      k:::::::::::k       a::::aaaa::::::a     
+#  o::::o     o::::o l::::l  i::::i  k::::::k:::::k     k::::::k:::::k     a::::a    a:::::a     
+#  o:::::ooooo:::::ol::::::li::::::ik::::::k k:::::k   k::::::k k:::::k    a::::a    a:::::a     
+#  o:::::::::::::::ol::::::li::::::ik::::::k  k:::::k  k::::::k  k:::::k   a:::::aaaa::::::a      
+#   oo:::::::::::oo l::::::li::::::ik::::::k   k:::::k k::::::k   k:::::k   a::::::::::aa:::a    
+#     ooooooooooo   lllllllliiiiiiiikkkkkkkk    kkkkkkkkkkkkkkk    kkkkkkk  aaaaaaaaaa  aaaa     
+#                  
+#         
+#                 
+# FileName: RefreshStalePackageDistributions.ps1
+#=============================================================================
+# REVISION HISTORY
+#=============================================================================
+# Version : 1.0
+# Date    : March 2014
+# Author  : Russell Downs
+# Notes   : First draft
+#=============================================================================
+
+<#
+.SYNOPSIS
+Forces a refresh of stuck ConfigMgr 2007 package distributions by deleting the row from the PkgStatus table for that Pkg ID and SiteCode and then forcing a refresh.
+
+.INSTRUCTIONS
+
+1) Export the 'All Active Package Distributions' report to a CSV and filter the records by 'last refresh time'. 
+2) Delete any recently distributed packages that are not considered stale.
+3) Delete any spaces in the column headers.
+4) ENSURE THAT ANY NUMBER-BASED SITECODES ARE THREE CHARACTERS. Eg... 003 NOT 3. 
+4) Save the CSV in the same directory as this script as 'StalePackages.CSV'.
+5) Enter the SMSProvider, Namespace and SMSSiteCode in the Parameters section below.
+6) Run this script with credentials that have rights to the SCCM databse. 
+
+.INPUTS
+None. You cannot pipe objects to this command.
+
+.OUTPUTS
+Note. This command does not return any data.
+
+.NOTES
+
+
+.EXAMPLE
+PS C:\> [Example Command Line]
+
+[Description of what the specific command line does]
+
+.LINK
+http://www.olikka.com.au
+#>
+
+#=============================================================================
+# ENVIRONMENT VARIABLES
+#=============================================================================
+
+# Set Working Directory
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Set ConfigMgr Environment Variables Here...
+$SMSProvider = "AU-GLB-SCM01"
+$SMSSiteCode = "GL1"
+$Namespace = "Root\SMS\Site_GL1"
+
+#=============================================================================
+# FUNCTIONS
+#=============================================================================
+
+# Initialize-Log
+Function Initialize-Log
+{
+Param(
+    [Parameter(Mandatory = $true , Position = 0)]
+    $Global:ScriptName,
+
+    [Parameter(Mandatory = $false, Position = 1)]
+    [ValidateScript({Test-Path $_ -PathType Container})]
+    $Global:LogPath
+    )
+
+Set-Variable -name LogInfo    -value 1 -scope global # Informational Message
+Set-Variable -name LogWarning -value 2 -scope global # Warning Message
+Set-Variable -name LogError   -value 3 -scope global # Error Message
+
+$Global:LogPath = $ScriptDir
+$Global:LogFile = Join-Path $LogPath $ScriptName.Replace(".ps1",".log")
+Write-Host "LogFile is $LogFile"
+Write-Log "-------Script Initialized-------"
+} #End Function
+
+#Write Log
+Function Write-Log
+{
+param(
+    [Parameter(Mandatory = $true,Position = 0)]
+    [string]$info,
+    
+    [Parameter(Mandatory = $false,Position = 1)]
+    [int]$type = $LogInfo
+    )
+    
+    $LogTime = Get-Date
+    $Offset  = (([System.TimeZoneInfo]::Local.GetUtcOffset($LogTime)).TotalMinutes * -1).ToString("000")
+	$time    = Get-Date -Date $LogTime -Format "HH:mm:ss.fff"
+	$date    = Get-Date -Date $LogTime -Format "MM-dd-yyyy"
+    If ($Offset.Length -eq 3) { $Offset = "+$Offset" }
+
+	$msg = "<![LOG[$info]LOG]!><time=""$time$Offset"" date=""$date"" component=""$scriptName"" context="""" type=""$type"" thread="""" file=""$scriptName"">"
+	Add-Content -Path $LogFile -Value $msg
+	Write-Host $info
+} #End Function
+
+Function Exit-Error
+{
+param(
+    [Parameter(Mandatory = $false,Position = 0)]
+    [string]$msg = "Exit script with Error",
+
+    [Parameter(Mandatory = $false,Position = 1)]
+    $errCode = 1,
+    
+    [Parameter(Mandatory = $false)]
+    [switch]$Pause
+    )
+$msg = "$msg rc=$errCode" 
+Write-Log $msg $LogError
+Write-Log "-------Script Completed-------" $LogInfo
+#$host.SetShouldExit($errCode)
+If ($Pause) { $Host.UI.PromptforChoice("Script Error", $msg, [System.Management.Automation.Host.ChoiceDescription[]] @("E&xit Script"),0) }
+Exit $errCode
+} #End Function
+
+Function Exit-Ok
+{
+param(
+    [Parameter(Mandatory = $false,Position = 0)]
+    [string]$msg = "Exit Successfully",
+    
+    [Parameter(Mandatory = $false)]
+    [switch]$Pause
+    )
+Write-Log $msg
+Write-Log "-------Script Completed-------"
+If ($Pause) { $Host.UI.PromptforChoice("Script Completed", $msg, [System.Management.Automation.Host.ChoiceDescription[]] @("E&xit Script"),0) }
+Exit 0
+} #End Function
+
+#Function: Clear Package Status
+Function ClearPkgStatus {
+
+#Connect to SQL
+$Connection = New-Object System.Data.SQLClient.SQLConnection
+$Connection.ConnectionString = "server=$SMSProvider;database=SMS_$SMSSiteCode;trusted_connection=true;"
+$Connection.Open()
+
+#Clear PKgStatus
+$Delete = @"
+DELETE FROM PkgStatus WHERE (ID = '$($StalePackage.PackageId)') AND (SiteCode = '$($StalePackage.SiteCode)')
+"@	
+$Command = New-Object System.Data.SQLCLient.SQLCommand
+$Command.Connection = $Connection
+$Command.CommandText = $Delete
+$objReturn = $Command.ExecuteNonQuery()
+if ($objReturn -ge 1) {Write-Log "Successfully deleted $objReturn rows from the PkgStatus table"} else {Write-Log "Error - There are NO rows to delete from PkgStatus table"}
+
+#Close Connection to SQL
+$Connection.Close()
+} #End Function
+
+#Function: Force Refresh
+Function ForceRefresh {
+
+#Force Refresh of Stale Package
+$Refresh = @"
+SELECT * FROM SMS_DistributionPoint WHERE (PackageID = '$($StalePackage.PackageId)') AND (SiteCode = '$($StalePackage.SiteCode)')
+"@
+[array]$Package = Get-WmiObject -ComputerName $SMSProvider -Namespace $Namespace -Query $Refresh
+$Package[0].RefreshNow = $true
+$pkgReturn = $Package[0].Put()
+Write-Log "$pkgReturn"
+Write-Log "Successfully forced a refresh of $($StalePackage.PackageName) $($StalePackage.PackageId) on $($StalePackage.SiteCode)"
+} #End Function
+
+#=============================================================================
+# SCRIPT BODY
+#=============================================================================
+
+#Setup Logging Functionality
+initialize-log $MyInvocation.MyCommand.ToString()
+
+Write-Log "Starting to refresh stale records..."
+
+foreach ($StalePackage in Import-CSV "$ScriptDir\StalePackages.CSV") {
+Write-Log "Working on $($StalePackage.PackageName)"
+ClearPkgStatus
+ForceRefresh
+Write-Log "Finished with $($StalePackage.PackageName)"
+}
+
+Write-Log "Completed refreshing stale records..."
+exit-ok
+
+#=============================================================================
+# END OF SCRIPT: [RefreshStalePackageDistributions]
+#=============================================================================
